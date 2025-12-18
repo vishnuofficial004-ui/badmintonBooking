@@ -1,4 +1,4 @@
-package com.example.badmintonBooking;
+package com.example.badmintonbooking;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
