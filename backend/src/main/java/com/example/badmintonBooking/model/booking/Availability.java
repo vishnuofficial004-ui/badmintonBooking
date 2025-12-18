@@ -13,7 +13,7 @@ import com.example.badmintonbooking.model.ResourceType;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class Availability {
+public class availability {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
