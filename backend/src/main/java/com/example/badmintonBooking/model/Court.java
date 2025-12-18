@@ -1,8 +1,10 @@
 package com.example.badmintonbooking.model;
 
 import jakarta.persistence.*;
+import lombok.*;
 
 @Entity
+@Builder
 public class Court {
 
     @Id
