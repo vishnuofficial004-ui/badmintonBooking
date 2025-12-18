@@ -1,14 +1,12 @@
 package com.example.badmintonbooking.service.booking;
 
 import com.example.badmintonbooking.dto.bookingrequestdto;
+import com.example.badmintonbooking.dto.pricingrequestdto;
+import com.example.badmintonbooking.dto.pricingresponsedto;
 import com.example.badmintonbooking.model.*;
 import com.example.badmintonbooking.model.booking.*;
-import com.example.badmintonbooking.repository.CoachRepository;
-import com.example.badmintonbooking.repository.CourtRepository;
-import com.example.badmintonbooking.repository.EquipmentRepository;
-import com.example.badmintonbooking.repository.availabilityrepository;
-import com.example.badmintonbooking.repository.bookingrepository;
-import com.example.badmintonbooking.repository.bookingresourcerepository;
+import com.example.badmintonbooking.repository.*;
+import com.example.badmintonbooking.service.pricing.pricingservice;
 
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
@@ -29,15 +27,17 @@ public class bookingservice {
     private final availabilityrepository availabilityRepository;
     private final bookingrepository bookingRepository;
     private final bookingresourcerepository bookingResourceRepository;
+    private final pricingservice pricingService;
 
     @Transactional
     public Booking createBooking(bookingrequestdto request) {
 
-        // 1️⃣ Validate court
+        /* =======================
+           1️⃣ VALIDATE COURT
+        ======================== */
         Court court = courtRepository.findById(request.getCourtId())
                 .orElseThrow(() -> new RuntimeException("Court not found"));
 
-        // 2️⃣ Check court availability
         availability courtSlot = availabilityRepository
                 .findByResourceTypeAndResourceIdAndDateAndAvailableTrue(
                         ResourceType.COURT,
@@ -49,9 +49,11 @@ public class bookingservice {
                 .findFirst()
                 .orElseThrow(() -> new RuntimeException("Court not available"));
 
-        // 3️⃣ Check coach availability (optional)
-        availability coachSlot = null;
+        /* =======================
+           2️⃣ VALIDATE COACH (OPTIONAL)
+        ======================== */
         Coach coach = null;
+        availability coachSlot = null;
 
         if (request.getCoachId() != null) {
             coach = coachRepository.findById(request.getCoachId())
@@ -69,19 +71,40 @@ public class bookingservice {
                     .orElseThrow(() -> new RuntimeException("Coach not available"));
         }
 
-        // 4️⃣ Check equipment availability
+        /* =======================
+           3️⃣ VALIDATE EQUIPMENT
+        ======================== */
         if (request.getEquipment() != null) {
             for (Map.Entry<Long, Integer> entry : request.getEquipment().entrySet()) {
                 Equipment equipment = equipmentRepository.findById(entry.getKey())
                         .orElseThrow(() -> new RuntimeException("Equipment not found"));
 
                 if (entry.getValue() > equipment.getTotalQuantity()) {
-                    throw new RuntimeException("Not enough equipment available: " + equipment.getName());
+                    throw new RuntimeException(
+                            "Not enough equipment available: " + equipment.getName()
+                    );
                 }
             }
         }
 
-        // 5️⃣ Create booking
+        /* =======================
+           4️⃣ CALCULATE PRICE (PHASE 6)
+        ======================== */
+        pricingrequestdto pricingRequest = pricingrequestdto.builder()
+                .date(request.getDate())
+                .startTime(request.getStartTime())
+                .endTime(request.getEndTime())
+                .courtId(request.getCourtId())
+                .coachId(request.getCoachId())
+                .equipment(request.getEquipment())
+                .build();
+
+        pricingresponsedto pricingResponse =
+                pricingService.calculatePrice(pricingRequest);
+
+        /* =======================
+           5️⃣ CREATE BOOKING
+        ======================== */
         Booking booking = Booking.builder()
                 .userName(request.getUserName())
                 .date(request.getDate())
@@ -89,14 +112,16 @@ public class bookingservice {
                 .endTime(request.getEndTime())
                 .status(BookingStatus.CONFIRMED)
                 .createdAt(LocalDateTime.now())
-                .totalPrice(0.0) // will be calculated later
+                .totalPrice(pricingResponse.getTotalPrice())
                 .build();
 
         bookingRepository.save(booking);
 
         List<BookingResource> resources = new ArrayList<>();
 
-        // 6️⃣ Reserve court
+        /* =======================
+           6️⃣ RESERVE COURT
+        ======================== */
         courtSlot.setAvailable(false);
         availabilityRepository.save(courtSlot);
 
@@ -104,10 +129,12 @@ public class bookingservice {
                 .booking(booking)
                 .resourceType(ResourceType.COURT)
                 .resourceId(court.getId())
-                .price(court.getHourlyRate())
+                .price(pricingResponse.getBaseCourtPrice())
                 .build());
 
-        // 7️⃣ Reserve coach
+        /* =======================
+           7️⃣ RESERVE COACH
+        ======================== */
         if (coach != null) {
             coachSlot.setAvailable(false);
             availabilityRepository.save(coachSlot);
@@ -120,7 +147,9 @@ public class bookingservice {
                     .build());
         }
 
-        // 8️⃣ Reserve equipment
+        /* =======================
+           8️⃣ RESERVE EQUIPMENT
+        ======================== */
         if (request.getEquipment() != null) {
             for (Map.Entry<Long, Integer> entry : request.getEquipment().entrySet()) {
                 Equipment equipment = equipmentRepository.findById(entry.getKey()).get();
@@ -141,3 +170,4 @@ public class bookingservice {
         return booking;
     }
 }
+
